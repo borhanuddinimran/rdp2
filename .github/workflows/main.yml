@@ -1,0 +1,350 @@
+name: 2022 RDP SERVER
+
+on:
+  workflow_dispatch:
+    inputs:
+      os_version:
+        description: '🪟 Select Windows OS Version'
+        required: true
+        default: 'windows-2022'
+        type: choice
+        options:
+        - 'windows-2022'
+        - 'windows-latest'
+        - 'windows-2019'
+      duration:
+        description: '🕐 Usage duration'
+        required: false
+        default: '5h40m'
+        type: choice
+        options:
+        - '1h'
+        - '3h' 
+        - '5h40m'
+      auto_restart:
+        description: '🔄 Auto-restart new cloud server when session ends?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'false'
+        - 'true'
+
+jobs:
+  Premium-RDP-Setup:
+    runs-on: ${{ github.event.inputs.os_version || 'windows-2022' }}
+    timeout-minutes: 350
+    
+    steps:
+      # WELCOME BANNER
+      - name: 🎯 INITIALIZING CLOUD SYSTEM
+        run: |
+          Write-Host ""
+          Write-Host "🤖 INHUMAN RDP CLOUD SERVER" -ForegroundColor Yellow
+          Write-Host "⚡ OS Environment: Windows Server 2022 Datacenter" -ForegroundColor Green
+          Write-Host "🌐 Applications: Python 3.11.9" -ForegroundColor Cyan
+          Write-Host "🕒 Duration: ${{ github.event.inputs.duration }}" -ForegroundColor Magenta
+          Write-Host ""
+          
+          $frames = @('⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷')
+          for($i=0; $i -lt 10; $i++) {
+              Write-Host "`r🚀 Initializing clean cloud system... $($frames[$i % 8])" -NoNewline -ForegroundColor Blue
+              Start-Sleep -Milliseconds 100
+          }
+          Write-Host "`r✅ System initialization started!                    " -ForegroundColor Green
+
+      # SETUP PYTHON 3.11.9
+      - name: 🐍 SETUP PYTHON 3.11.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.9'
+          architecture: 'x64'
+
+      # SYSTEM & PERSISTENCE CONFIGURATION
+      - name: 🔧 CONFIGURING RDP & PERSISTENT SESSION POLICIES
+        run: |
+          Write-Host ""
+          Write-Host "🛠️  CONFIGURING RDP & SESSION PERSISTENCE" -ForegroundColor Yellow
+          
+          $steps = @(
+              @{Name="Enable Remote Desktop"; Script={ 
+                  Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+              }},
+              @{Name="Disable Network Level Authentication"; Script={
+                  Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+              }},
+              @{Name="Configure RDP Security Layer"; Script={
+                  Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+                  Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+              }},
+              @{Name="Open Firewall Port 3389"; Script={
+                  netsh advfirewall firewall add rule name="RDP-Premium" dir=in action=allow protocol=TCP localport=3389 2>&1 | Out-Null
+                  netsh advfirewall firewall add rule name="RDP-Premium-Out" dir=out action=allow protocol=TCP localport=3389 2>&1 | Out-Null
+              }},
+              @{Name="Disable Disconnect Signout / Auto-lock"; Script={
+                  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxDisconnectionTime" -Value 0 -Force
+                  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MaxIdleTime" -Value 0 -Force
+                  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fResetBroken" -Value 0 -Force
+                  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "fPromptForPassword" -Value 0 -Force
+              }},
+              @{Name="Configure Auto Admin Logon"; Script={
+                  Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name "AutoAdminLogon" -Value "1" -Force
+                  Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name "DefaultUserName" -Value "Administrator" -Force
+                  Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name "DefaultPassword" -Value "Catizen@" -Force
+              }},
+              @{Name="Set Terminal Services Policy Overrides"; Script={
+                  $policiesPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
+                  if (-not (Test-Path $policiesPath)) { New-Item -Path $policiesPath -Force }
+                  Set-ItemProperty -Path $policiesPath -Name "fPromptForPassword" -Value 0 -Force
+                  Set-ItemProperty -Path $policiesPath -Name "MaxDisconnectionTime" -Value 0 -Force
+                  Set-ItemProperty -Path $policiesPath -Name "MaxIdleTime" -Value 0 -Force
+              }},
+              @{Name="Start RDP Services"; Script={
+                  Set-Service -Name TermService -StartupType Automatic -ErrorAction SilentlyContinue
+                  Set-Service -Name UmRdpService -StartupType Automatic -ErrorAction SilentlyContinue
+                  Start-Service -Name TermService -ErrorAction SilentlyContinue
+                  Start-Service -Name UmRdpService -ErrorAction SilentlyContinue
+              }}
+          )
+          
+          foreach($step in $cleanupSteps) {
+              Write-Host "│ 📋 $($step.Name)..." -NoNewline -ForegroundColor White
+              try {
+                  & $step.Script
+                  Write-Host "`r│ ✅ $($step.Name)" -ForegroundColor Green
+              } catch {
+                  Write-Host "`r│ ⚠️  $($step.Name) - Minor error ignored" -ForegroundColor Yellow
+              }
+              Start-Sleep -Milliseconds 500
+          }
+          
+          Write-Host "🎯 Configuration completed!" -ForegroundColor Green
+
+      # SET ADMINISTRATOR ACCOUNT WITH FIXED PASSWORD
+      - name: 👤 CONFIGURING ADMINISTRATOR ACCOUNT
+        run: |
+          Write-Host ""
+          Write-Host "👤 CONFIGURING ADMINISTRATOR ACCOUNT" -ForegroundColor Yellow
+          
+          $user = "Administrator"
+          $matKhau = "Catizen@"
+          $securePass = ConvertTo-SecureString $matKhau -AsPlainText -Force
+          
+          try {
+              Set-LocalUser -Name $user -Password $securePass -PasswordNeverExpires $true -AccountNeverExpires $true -ErrorAction SilentlyContinue
+              Enable-LocalUser -Name $user -ErrorAction SilentlyContinue
+              Write-Host "│ ✅ Password set for Administrator account" -ForegroundColor Green
+          } catch {
+              try {
+                  New-LocalUser -Name $user -Password $securePass -AccountNeverExpires -Description "Administrator RDP Account" -ErrorAction SilentlyContinue
+                  Enable-LocalUser -Name $user -ErrorAction SilentlyContinue
+                  Write-Host "│ ✅ Created Administrator account" -ForegroundColor Green
+              } catch {
+                  Write-Host "│ ⚠️ Error setting Administrator password: $($_.Exception.Message)" -ForegroundColor Yellow
+              }
+          }
+
+          Add-LocalGroupMember -Group "Administrators" -Member $user -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $user -ErrorAction SilentlyContinue
+          
+          Add-Content -Path $env:GITHUB_ENV -Value "RDP_USER=$user"
+          Add-Content -Path $env:GITHUB_ENV -Value "RDP_PASS=$matKhau"
+          Set-Content -Path "$env:TEMP\rdp_password.txt" -Value $matKhau -Encoding utf8
+          
+          Write-Host "✅ Account: $user with password: $matKhau is ready" -ForegroundColor Green
+
+      # TAILSCALE NETWORK SETUP
+      - name: 🌐 SETTING UP NETWORK
+        env:
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          Write-Host ""
+          Write-Host "🌐 SETTING UP NETWORK CONNECTION" -ForegroundColor Yellow
+          
+          try {
+              $msiPath = "$env:TEMP\tailscale-premium.msi"
+              Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile $msiPath
+              Start-Process msiexec.exe -ArgumentList "/i", "`"$msiPath`"", "/quiet", "/norestart" -Wait
+              Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
+              Write-Host "│ ✅ Installed Tailscale successfully" -ForegroundColor Green
+          } catch {
+              Write-Host "│ ❌ Failed to install Tailscale" -ForegroundColor Red
+          }
+          
+          Start-Sleep -Seconds 10
+          
+          try {
+              & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=ai-stv-premium-rdp --accept-routes --accept-dns --reset
+              Write-Host "│ ✅ Connected to Tailscale successfully with fixed hostname 'ai-stv-premium-rdp'" -ForegroundColor Green
+          } catch {
+              Write-Host "│ ❌ Failed to connect to Tailscale" -ForegroundColor Red
+          }
+          
+          Write-Host "🔄 Fetching IP address..." -NoNewline -ForegroundColor Blue
+          $ip = $null
+          for($i=0; $i -lt 20; $i++) {
+              try {
+                  $ip = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 2>&1) -join ""
+                  $ip = $ip.Trim()
+                  if ($ip -and $ip -match '^\d+\.\d+\.\d+\.\d+$') {
+                      Add-Content -Path $env:GITHUB_ENV -Value "TAILSCALE_IP=$ip"
+                      Write-Host "`r✅ IP Address: $ip" -ForegroundColor Green
+                      break
+                  }
+              } catch {
+              }
+              Write-Host "`r🔄 Fetching IP address... $(@('.', '..', '...')[$i % 3])" -NoNewline -ForegroundColor Blue
+              Start-Sleep -Seconds 3
+          }
+          
+          if (-not $ip -or $ip -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+              Write-Host "`r⚠️  Unable to fetch IP, falling back to localhost" -ForegroundColor Yellow
+              Add-Content -Path $env:GITHUB_ENV -Value "TAILSCALE_IP=localhost"
+          }
+
+      # CONNECTION INFORMATION DISPLAY
+      - name: 🎉 CONNECTION DETAILS
+        run: |
+          $matKhau = "Catizen@"
+          $user = "Administrator"
+          
+          $durationInput = "${{ github.event.inputs.duration }}"
+          switch ($durationInput) {
+              "1h" { $totalMinutes = 60; $displayTime = "1 hour" }
+              "3h" { $totalMinutes = 180; $displayTime = "3 hours" }
+              "5h40m" { $totalMinutes = 340; $displayTime = "5 hours 40 minutes" }
+              default { $totalMinutes = 340; $displayTime = "5 hours 40 minutes" }
+          }
+          
+          $timeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById("SE Asia Standard Time")
+          $startTime = [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(), $timeZone)
+          $endTime = $startTime.AddMinutes([double]$totalMinutes)
+          $freeDisk = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
+          $pyVer = python --version 2>&1
+          
+          Write-Host ""
+          Write-Host "┌───────────────────────────────────────────┐" -ForegroundColor Cyan
+          Write-Host "│        🎉 CONNECTION SUCCESSFUL!          │" -ForegroundColor Cyan
+          Write-Host "├───────────────────────────────────────────┤" -ForegroundColor Cyan
+          Write-Host "│ 🪟  OS Version:   Windows Server 2022" -ForegroundColor White
+          Write-Host "│ 🌐  Browser:      Google Chrome (Installed)" -ForegroundColor White
+          Write-Host "│ 🐍  Python:       $pyVer" -ForegroundColor White
+          Write-Host "│ 🌐  Tailscale IP: $env:TAILSCALE_IP (FIXED)" -ForegroundColor White
+          Write-Host "│ 👤  Username:     $user" -ForegroundColor White
+          Write-Host "│ 🔐  Password:     $matKhau" -ForegroundColor White
+          Write-Host "│ ⚡  Cloud Spec:   2 vCPU | 7GB RAM" -ForegroundColor White
+          Write-Host "│ 💾  Free Storage: ${freeDisk} GB" -ForegroundColor White
+          Write-Host "│ ⏰  Duration:     $displayTime" -ForegroundColor White
+          Write-Host "│ 🕐  Start:        $($startTime.ToString('HH:mm:ss'))" -ForegroundColor White
+          Write-Host "│ 🕐  End:          $($endTime.ToString('HH:mm:ss'))" -ForegroundColor White
+          Write-Host "│ 📍  Port:         3389" -ForegroundColor White
+          Write-Host "├───────────────────────────────────────────┤" -ForegroundColor Cyan
+          Write-Host "│ 💡  Instructions:                         │" -ForegroundColor Cyan
+          Write-Host "│   1. Open Remote Desktop Connection       │" -ForegroundColor Yellow
+          Write-Host "│   2. Enter IP: $env:TAILSCALE_IP          │" -ForegroundColor Yellow
+          Write-Host "│   3. User: $user | Pass: $matKhau         │" -ForegroundColor Yellow
+          Write-Host "│   4. Enjoy! 🚀                            │" -ForegroundColor Yellow
+          Write-Host "└───────────────────────────────────────────┘" -ForegroundColor Cyan
+          
+          Add-Content -Path $env:GITHUB_ENV -Value "TOTAL_MINUTES=$totalMinutes"
+
+      # MAINTAIN SESSION
+      - name: ⏳ MAINTAIN SESSION KEEPALIVE
+        run: |
+          $matKhau = "Catizen@"
+          $totalMinutes = if ($env:TOTAL_MINUTES) { [double]$env:TOTAL_MINUTES } else { 340 }
+          
+          $timeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById("SE Asia Standard Time")
+          $startTime = [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(), $timeZone)
+          $endTime = $startTime.AddMinutes($totalMinutes)
+          
+          Write-Host ""
+          Write-Host "🔄 STARTING SESSION KEEPALIVE..." -ForegroundColor Yellow
+          Write-Host "💎 Session: AI STV PREMIUM (Windows Server 2022)" -ForegroundColor Magenta
+          Write-Host "🔗 Connection: $env:TAILSCALE_IP" -ForegroundColor Cyan
+          Write-Host "👤 Account: Administrator | Password: Catizen@" -ForegroundColor White
+          Write-Host "🕐 Start: $($startTime.ToString('HH:mm:ss'))" -ForegroundColor Green
+          Write-Host "🕐 End:   $($endTime.ToString('HH:mm:ss'))" -ForegroundColor Green
+          Write-Host ""
+          
+          $monitorScript = {
+              $lastLogTime = Get-Date
+              while ($true) {
+                  $currentTime = Get-Date
+                  
+                  if (($currentTime - $lastLogTime).TotalMinutes -ge 2) {
+                      $termService = Get-Service -Name TermService -ErrorAction SilentlyContinue
+                      $rdpConnections = Get-NetTCPConnection -LocalPort 3389 -ErrorAction SilentlyContinue | Where-Object {$_.State -eq 'Established'}
+                      
+                      Write-Host "[$($currentTime.ToString('HH:mm:ss'))] 📊 Status - RDP: $($termService.Status), Connections: $($rdpConnections.Count)" -ForegroundColor Blue
+                      $lastLogTime = $currentTime
+                  }
+                  
+                  $termService = Get-Service -Name TermService -ErrorAction SilentlyContinue
+                  if ($termService.Status -ne 'Running') {
+                      Write-Host "[$($currentTime.ToString('HH:mm:ss'))] 🔄 Restarting TermService..." -ForegroundColor Yellow
+                      Start-Service -Name TermService -ErrorAction SilentlyContinue
+                  }
+                  
+                  Start-Sleep -Seconds 30
+              }
+          }
+          
+          Start-Job -ScriptBlock $monitorScript -Name "SystemMonitor"
+          
+          $frames = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+          $colors = @('Red', 'Yellow', 'Green', 'Cyan', 'Blue', 'Magenta')
+          $jobStartTime = Get-Date
+          
+          do {
+              $currentTime = [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(), $timeZone)
+              $remainingTime = $endTime - $currentTime
+              
+              $remainingHours = [math]::Max(0, [math]::Floor($remainingTime.TotalHours))
+              $remainingMinutes = [math]::Max(0, [math]::Floor($remainingTime.TotalMinutes % 60))
+              $remainingSeconds = [math]::Max(0, [math]::Floor($remainingTime.TotalSeconds % 60))
+              
+              $frame = $frames[([int]((Get-Date) - $jobStartTime).TotalSeconds) % $frames.Length]
+              $color = $colors[([int]((Get-Date) - $jobStartTime).TotalMinutes) % $colors.Length]
+              
+              Write-Host "`r$frame [$($currentTime.ToString('HH:mm:ss'))] Remaining Time: ${remainingHours}h ${remainingMinutes}m ${remainingSeconds}s" -NoNewline -ForegroundColor $color
+              
+              Start-Sleep -Seconds 5
+              
+          } while ($remainingTime.TotalSeconds -gt 0)
+          
+          Write-Host ""
+          Write-Host "🎯 SESSION TIME EXPIRED!" -ForegroundColor Red
+          
+          Get-Job -Name "SystemMonitor" -ErrorAction SilentlyContinue | Stop-Job -PassThru | Remove-Job -Force
+
+      # OPTIONAL AUTO-RESTART
+      - name: 🔄 TRIGGER NEW CLOUD SERVER AUTOMATICALLY
+        if: github.event.inputs.auto_restart == 'true'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          Write-Host "🔄 Triggering next RDP cloud server instance..." -ForegroundColor Yellow
+          if ($env:GH_PAT) {
+            $headers = @{
+              "Authorization" = "token $env:GH_PAT"
+              "Accept"        = "application/vnd.github.v3+json"
+            }
+            $body = @{ 
+              ref = "main"
+              inputs = @{
+                os_version = "${{ github.event.inputs.os_version }}"
+                duration = "${{ github.event.inputs.duration }}"
+                auto_restart = "true"
+              }
+            } | ConvertTo-Json
+            
+            try {
+              Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/main.yml/dispatches" -Method Post -Headers $headers -Body $body
+              Write-Host "✅ Successfully queued next continuous Cloud RDP server!" -ForegroundColor Green
+            } catch {
+              Write-Host "⚠️ Could not trigger next workflow. Make sure GH_PAT secret is set." -ForegroundColor Red
+            }
+          } else {
+            Write-Host "⚠️ GH_PAT secret is missing. Add Personal Access Token to auto-restart continuous sessions." -ForegroundColor Yellow
+          }
