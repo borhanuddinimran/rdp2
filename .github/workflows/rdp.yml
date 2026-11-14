@@ -82,6 +82,9 @@ jobs:
           Write-Host ""
           Write-Host "👤 CONFIGURING ADMINISTRATOR ACCOUNT" -ForegroundColor Yellow
           
+          # Set Account lockout threshold to 0 (never lock out)
+          net accounts /lockoutthreshold:0
+          
           $user = "Administrator"
           $matKhau = if ("${{ github.event.inputs.password }}") { "${{ github.event.inputs.password }}" } else { "Catizen@" }
           $securePass = ConvertTo-SecureString $matKhau -AsPlainText -Force
@@ -109,7 +112,6 @@ jobs:
           
           Write-Host "✅ Account: $user with password: $matKhau is ready" -ForegroundColor Green
 
-      
       # TAILSCALE NETWORK SETUP
       - name: 🌐 SETTING UP NETWORK
         env:
@@ -371,7 +373,7 @@ jobs:
 
           # Send expiration notification to Telegram
           if ($env:TELEGRAM_BOT_TOKEN -and $env:TELEGRAM_CHAT_ID) {
-            $endMsg = "⏳ *RDP Session Expired.* Server instance is now completing. @vampirerrors"
+            $endMsg = "⏳ *RDP Session Expired.* Server instance is now completing. @inhumantt"
             $endPayload = @{ chat_id = $env:TELEGRAM_CHAT_ID; text = $endMsg; parse_mode = "Markdown" } | ConvertTo-Json
             try {
               Invoke-RestMethod -Uri "https://api.telegram.org/bot$($env:TELEGRAM_BOT_TOKEN)/sendMessage" `
@@ -380,5 +382,3 @@ jobs:
                                 -Body ([System.Text.Encoding]::UTF8.GetBytes($endPayload))
             } catch {}
           }
-
-      
